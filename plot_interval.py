@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 # For smoothing.
 from scipy.ndimage.filters import uniform_filter1d
 
-import geneDrawingUtils
+from . import geneDrawingUtils
 importlib.reload(geneDrawingUtils)
 
 def rc(seq):
