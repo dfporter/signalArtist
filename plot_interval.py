@@ -117,6 +117,7 @@ def plot_interval(
         for name, list_of_arrays in smoothed.items():
             for arr in list_of_arrays:
                 ax[1].plot(arr, c=colors[names.index(name)], alpha=0.7, linestyle=':', lw=0.5, label=name)
+                ax[1].set_xlim(xmin, xmax)
 
     # Plot any gene that might be there.
     if db is not None:
