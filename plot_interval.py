@@ -7,7 +7,7 @@ from typing import List, Mapping, Union
 import matplotlib.pyplot as plt
 
 # For smoothing.
-from scipy.ndimage.filters import uniform_filter1d
+from scipy.ndimage import uniform_filter1d
 
 import geneDrawingUtils
 importlib.reload(geneDrawingUtils)
@@ -39,11 +39,15 @@ def get_coverage_in_an_interval_for_bam_file(bam_fname, interval):
     samfile.close()
     return b
 
-
 def get_coverage_in_an_interval_for_bigwig_file(bw_fname, interval):
     bw = pyBigWig.open(bw_fname)
-    return np.nan_to_num(bw.values(*interval[:-1]))
-
+    print(interval)
+    try:
+        return np.nan_to_num(bw.values(*interval[:3]))
+    except:
+        # Possible the bigwig has no chr string, while the input interval does.
+        _interval = [interval[0], interval[1], interval[2]]
+        return np.nan_to_num(bw.values(*_interval))
 
 def coverage(fname, interval, norm_to_per_million=True):
     
@@ -59,7 +63,7 @@ def coverage(fname, interval, norm_to_per_million=True):
 
 def plot_interval(
     iv, bw_fnames={}, genomic_fasta=None, window=50, db=None, RNAs=None,
-    motif='GCAGCA', plot_replicates=True):
+    motif='GCAGCA', plot_replicates=True, plot_this_txpt=None):
 
     signalArrs = {}
     for name, bw_fname_set in bw_fnames.items():
@@ -69,8 +73,12 @@ def plot_interval(
     for name, list_of_arrays in signalArrs.items():
         if len(list_of_arrays) > 0:
             averages[name] = np.sum(list_of_arrays, axis=0)/len(list_of_arrays)
-            smoothed[name] = [uniform_filter1d(arr, size=window) for arr in list_of_arrays]
-            smoothed_ave[name] = uniform_filter1d(averages[name], size=window)
+            if window > 1:
+                smoothed[name] = [uniform_filter1d(arr, size=window) for arr in list_of_arrays]
+                smoothed_ave[name] = uniform_filter1d(averages[name], size=window)
+            else:
+                smoothed[name] = [arr for arr in list_of_arrays]
+                smoothed_ave[name] = averages[name]
     names = list(smoothed_ave.keys())
     
     if genomic_fasta:
@@ -81,34 +89,47 @@ def plot_interval(
         fig, ax = plt.subplots(4, 1, figsize=(9, 6), gridspec_kw={'height_ratios':[2,2,0.7,0.3]})
         motif_ax = 2
         gene_ax = 3
-    else:
+    elif genomic_fasta:
         fig, ax = plt.subplots(3, 1, figsize=(5, 4), gridspec_kw={'height_ratios':[2,0.7,0.3]})
         motif_ax = 1
         gene_ax = 2
-
+    else:
+        fig, ax = plt.subplots(2, 1, figsize=(5, 4), gridspec_kw={'height_ratios':[2,0.3]})
+        gene_ax = 1
+    
+    xmin = 0
+    xmax = len(smoothed_ave[names[0]])
+    
     # Plot averages.
     colors = 'krbgv'
     for name, aves_arr in smoothed_ave.items():
         ax[0].plot(aves_arr, c=colors[names.index(name)], alpha=0.7, lw=0.5, label=name)
+        ax[0].set_xlim(xmin, xmax)
+        ax[0].legend()
 
     if genomic_fasta:
         ax[motif_ax].plot(motif_density, c='g', alpha=0.7, lw=0.5)
+        ax[motif_ax].set_xlim(xmin, xmax)
+
     
     # Plot replicates in the axis below.
     if plot_replicates:
         for name, list_of_arrays in smoothed.items():
             for arr in list_of_arrays:
-                ax[1].plot(arr, c=colors[names.index(name)], alpha=0.7, linestyle=':', lw=0.5)
-    
+                ax[1].plot(arr, c=colors[names.index(name)], alpha=0.7, linestyle=':', lw=0.5, label=name)
+
     # Plot any gene that might be there.
     if db is not None:
-        _gene = geneDrawingUtils.plot_gene(iv, ax[gene_ax], db, RNAs)
+        _gene = geneDrawingUtils.plot_gene(
+            iv, ax[gene_ax], db, plot_this_txpt=plot_this_txpt, xmax=xmax)
 
     for _ax in ax:
         _ax.set_xticks([], [])
         _ax.set_ylabel('RPM')
+    
+    if genomic_fasta:
+        ax[motif_ax].set_ylabel('Motif')
         
-    ax[motif_ax].set_ylabel('Motif')
     print('-----')
     ax[0].annotate(f"{iv[0]}:{iv[1]:,}-{iv[2]:,}", xy=(0.05, 0.80), xycoords='axes fraction')
     #fig.set_figwidth(12); fig.set_figheight(6)
@@ -124,6 +145,8 @@ def plot_interval(
         set_ticks(ax[1])    
     
     os.makedirs('figs/signals/', exist_ok=True)
+    
+    
     fig.savefig('figs/signals/' + ' '.join([str(x) for x in iv]) + f'.{_gene}.pdf')
     plt.show()
     plt.clf(); plt.close()
